@@ -1311,6 +1311,7 @@ class TasksManager:
         Returns:
             The AutoModel class corresponding to the task.
         """
+        breakpoint()
         task = task.replace("-with-past", "")
         task = TasksManager.map_from_synonym(task)
 

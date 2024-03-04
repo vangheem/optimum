@@ -16,6 +16,7 @@
 import argparse
 import json
 from pathlib import Path
+import importlib
 from typing import TYPE_CHECKING
 
 from ...exporters import TasksManager
@@ -165,6 +166,24 @@ def parse_args_onnx(parser):
         action="store_true",
         help="PyTorch-only argument. Disables PyTorch ONNX export constant folding.",
     )
+    optional_group.add_argument(
+        "--local-files-only",
+        action="store_true",
+        help="If set, the export will only use local files and not attempt to download any remote files.",
+        default=False,
+    )
+    optional_group.add_argument(
+        "--config-factory",
+        type=str,
+        default=None,
+        help="The name of the config factory to use for the export. If not provided, will attempt to use normal config auto loader.",
+    )
+    optional_group.add_argument(
+        "--model-factory",
+        type=str,
+        default=None,
+        help="The name of the model factory to use for the export. If not provided, will attempt to use normal model auto loader for the type of model.",
+    )
 
     input_group = parser.add_argument_group(
         "Input shapes (if necessary, this allows to override the shapes of the input given to the ONNX exporter, that requires an example input)."
@@ -244,6 +263,12 @@ def parse_args_onnx(parser):
     parser.add_argument("--for-ort", action="store_true", help=argparse.SUPPRESS)
 
 
+def str_to_mod(mod_str):
+    import_path, func_name = mod_str.rsplit(":", 1)
+    mod = importlib.import_module(import_path)
+    return getattr(mod, func_name)
+
+
 class ONNXExportCommand(BaseOptimumCLICommand):
     @staticmethod
     def parse_args(parser: "ArgumentParser"):
@@ -258,6 +283,7 @@ class ONNXExportCommand(BaseOptimumCLICommand):
             if hasattr(self.args, input_name):
                 input_shapes[input_name] = getattr(self.args, input_name)
 
+        breakpoint()
         main_export(
             model_name_or_path=self.args.model,
             output=self.args.output,
@@ -282,5 +308,8 @@ class ONNXExportCommand(BaseOptimumCLICommand):
             no_dynamic_axes=self.args.no_dynamic_axes,
             model_kwargs=self.args.model_kwargs,
             do_constant_folding=not self.args.no_constant_folding,
+            local_files_only=self.args.local_files_only,
+            config_factory=str_to_mod(self.args.config_factory) if self.args.config_factory else None,
+            model_factory=str_to_mod(self.args.model_factory) if self.args.model_factory else None,
             **input_shapes,
         )

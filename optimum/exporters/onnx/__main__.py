@@ -76,6 +76,8 @@ def main_export(
     legacy: bool = False,
     no_dynamic_axes: bool = False,
     do_constant_folding: bool = True,
+    config_factory: Optional[Callable] = None,
+    model_factory: Optional[Callable] = None,
     **kwargs_shapes,
 ):
     """
@@ -243,7 +245,9 @@ def main_export(
 
     custom_architecture = False
     loading_kwargs = {}
-    if library_name == "transformers":
+    if config_factory is not None:
+        config = config_factory(model_name_or_path)
+    elif library_name == "transformers":
         config = AutoConfig.from_pretrained(
             model_name_or_path,
             subfolder=subfolder,
@@ -276,22 +280,25 @@ def main_export(
         if model_type in SDPA_ARCHS_ONNX_EXPORT_NOT_SUPPORTED and _transformers_version >= version.parse("4.35.99"):
             loading_kwargs["attn_implementation"] = "eager"
 
-    model = TasksManager.get_model_from_task(
-        task,
-        model_name_or_path,
-        subfolder=subfolder,
-        revision=revision,
-        cache_dir=cache_dir,
-        use_auth_token=use_auth_token,
-        local_files_only=local_files_only,
-        force_download=force_download,
-        trust_remote_code=trust_remote_code,
-        framework=framework,
-        torch_dtype=torch_dtype,
-        device=device,
-        library_name=library_name,
-        **loading_kwargs,
-    )
+    if model_factory is not None:
+        model = model_factory(model_name_or_path, config)
+    else:
+        model = TasksManager.get_model_from_task(
+            task,
+            model_name_or_path,
+            subfolder=subfolder,
+            revision=revision,
+            cache_dir=cache_dir,
+            use_auth_token=use_auth_token,
+            local_files_only=local_files_only,
+            force_download=force_download,
+            trust_remote_code=trust_remote_code,
+            framework=framework,
+            torch_dtype=torch_dtype,
+            device=device,
+            library_name=library_name,
+            **loading_kwargs,
+        )
 
     needs_pad_token_id = task == "text-classification" and getattr(model.config, "pad_token_id", None) is None
 
@@ -314,21 +321,21 @@ def main_export(
     else:
         model_type = model.config.model_type.replace("_", "-")
 
-    if (
-        not custom_architecture
-        and library_name != "diffusers"
-        and task + "-with-past"
-        in TasksManager.get_supported_tasks_for_model_type(model_type, "onnx", library_name=library_name)
-    ):
-        # Make -with-past the default if --task was not explicitely specified
-        if original_task == "auto" and not monolith:
-            task = task + "-with-past"
-        else:
-            logger.info(
-                f"The task `{task}` was manually specified, and past key values will not be reused in the decoding."
-                f" if needed, please pass `--task {task}-with-past` to export using the past key values."
-            )
-            model.config.use_cache = False
+    # if (
+    #     not custom_architecture
+    #     and library_name != "diffusers"
+    #     and task + "-with-past"
+    #     in TasksManager.get_supported_tasks_for_model_type(model_type, "onnx", library_name=library_name)
+    # ):
+    #     # Make -with-past the default if --task was not explicitely specified
+    #     if original_task == "auto" and not monolith:
+    #         task = task + "-with-past"
+    #     else:
+    #         logger.info(
+    #             f"The task `{task}` was manually specified, and past key values will not be reused in the decoding."
+    #             f" if needed, please pass `--task {task}-with-past` to export using the past key values."
+    #         )
+    #         model.config.use_cache = False
 
     if task.endswith("with-past"):
         model.config.use_cache = True
